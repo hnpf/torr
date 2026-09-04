@@ -27,3 +27,7 @@ target
 
 todo.md
 
+*.msi
+*.iso
+*.img
+
