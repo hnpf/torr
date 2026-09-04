@@ -129,6 +129,8 @@ pub struct PeerConnection {
 impl PeerConnection {
     pub fn connect<A: ToSocketAddrs>(addr: A, info_hash: [u8; 20], peer_id: [u8; 20]) -> Result<Self, String> {
         let mut stream = TcpStream::connect(addr).map_err(|e| e.to_string())?;
+        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
+        let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(10)));
         let outgoing = Handshake::new(info_hash, peer_id);
         outgoing.write_to(&mut stream)?;
 
@@ -261,6 +263,13 @@ impl PeerState {
         }
     }
 
+    pub fn wait_for_unchoke(&mut self) -> Result<(), String> {
+        while self.choked {
+            self.receive_and_update()?;
+        }
+        Ok(())
+    }
+
     pub fn set_interested(&mut self) -> Result<(), String> {
         self.local_interested = true;
         self.connection.send_interested()
@@ -276,11 +285,20 @@ impl PeerState {
             self.set_interested()?;
         }
         self.connection.send_request(index, begin, length)?;
-        let (resp_index, resp_begin, block) = self.connection.receive_piece()?;
-        if resp_index != index || resp_begin != begin {
-            return Err("unexpected piece response".into());
+        loop {
+            let msg = self.receive_and_update()?;
+            match msg {
+                Message::Piece { index: i, begin: b, block } => {
+                    if i == index && b == begin {
+                        return Ok(block);
+                    }
+                }
+                Message::Choke => {
+                    return Err("peer choked during transfer".into());
+                }
+                _ => {}
+            }
         }
-        Ok(block)
     }
 
     pub fn download_piece(&mut self, index: u32, piece_length: u32) -> Result<Vec<u8>, String> {
@@ -907,5 +925,36 @@ mod tests {
 
         tracker_server.join().unwrap();
         peer_server.join().unwrap();
+    }
+
+    #[test]
+    fn peer_state_wait_for_unchoke_blocks_until_unchoke_message() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let info_hash = [0xccu8; 20];
+        let peer_id = *b"-TC0001-123456789012";
+
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut buffer = vec![0u8; 1 + PROTOCOL_LEN as usize + 8 + 20 + 20];
+            socket.read_exact(&mut buffer).unwrap();
+
+            let response = Handshake::new(info_hash, peer_id);
+            socket.write_all(&response.encode()).unwrap();
+
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            socket.write_all(&Message::Unchoke.encode()).unwrap();
+        });
+
+        let connection = PeerConnection::connect(addr, info_hash, peer_id).unwrap();
+        let mut state = PeerState::new(connection);
+        assert!(state.choked);
+        state.wait_for_unchoke().unwrap();
+        assert!(!state.choked);
+
+        server.join().unwrap();
     }
 }

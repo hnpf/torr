@@ -12,6 +12,24 @@ pub struct TorrentFile {
     pub length: i64,               // total size, singlefile mode only for now
 }
 
+impl TorrentFile {
+    pub fn piece_size(&self, index: usize) -> usize {
+        if index >= self.pieces.len() {
+            return 0;
+        }
+        if index == self.pieces.len() - 1 {
+            let rem = self.length % self.piece_length;
+            if rem == 0 {
+                self.piece_length as usize
+            } else {
+                rem as usize
+            }
+        } else {
+            self.piece_length as usize
+        }
+    }
+}
+
 pub fn parse(data: &[u8]) -> Result<TorrentFile, String> {
     let (decoded, _) = crate::core::bencode::decode(data)?;
     
@@ -84,5 +102,7 @@ mod tests {
         assert_eq!(torrent.name, "ubuntu-26.04-desktop-amd64.iso");
         assert_eq!(torrent.piece_length, 256 * 1024); // 256 KiB in bytes
         assert_eq!(torrent.pieces.len(), 24868);
+        assert_eq!(torrent.piece_size(0), 256 * 1024);
+        assert_eq!(torrent.piece_size(24867), (torrent.length % (256 * 1024)) as usize);
     }
 }
