@@ -4,3 +4,4 @@ pub mod tracker;
 pub mod piece;
 pub mod storage;
 pub mod peer;
+pub mod download;

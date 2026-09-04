@@ -56,6 +56,10 @@ impl Storage {
         Ok(())
     }
 
+    pub fn write_piece(&mut self, index: u32, data: &[u8]) -> Result<(), String> {
+        self.write_block(index, 0, data)
+    }
+
     pub fn read_piece(&mut self, index: u32) -> Result<Vec<u8>, String> {
         let piece_start = index as u64 * self.piece_length as u64;
         if piece_start >= self.length {
