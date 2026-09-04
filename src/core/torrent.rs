@@ -75,7 +75,7 @@ pub fn load_bytes(source: &str) -> Result<Vec<u8>, String> {
     if source.starts_with("http://") || source.starts_with("https://") {
         use std::io::Read;
         let response = ureq::get(source)
-            .header("User-Agent", "tc/0.1.0")
+            .header("User-Agent", "torr/0.1.0")
             .call()
             .map_err(|e| format!("failed to fetch torrent from '{source}': {e}"))?;
         let mut body = Vec::new();

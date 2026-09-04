@@ -44,28 +44,28 @@ fn main() {
     let result = match positional[0].as_str() {
         "download" | "add" => {
             if positional.len() < 2 {
-                eprintln!("usage: tc download [-l <location>] <torrent_source>");
+                eprintln!("usage: torr download [-l <location>] <torrent_source>");
                 process::exit(1);
             }
             cli::commands::add::run(&positional[1], location.as_deref())
         }
         "status" | "info" => {
             if positional.len() < 2 {
-                eprintln!("usage: tc status <torrent_source>");
+                eprintln!("usage: torr status <torrent_source>");
                 process::exit(1);
             }
             cli::commands::status::run(&positional[1])
         }
         "peers" => {
             if positional.len() < 2 {
-                eprintln!("usage: tc peers <torrent_source>");
+                eprintln!("usage: torr peers <torrent_source>");
                 process::exit(1);
             }
             cli::commands::peers::run(&positional[1])
         }
         "verify" => {
             if positional.len() < 3 {
-                eprintln!("usage: tc verify <torrent_source> <file_path>");
+                eprintln!("usage: torr verify <torrent_source> <file_path>");
                 process::exit(1);
             }
             cli::commands::verify::run(&positional[1], &positional[2])
@@ -82,12 +82,12 @@ fn main() {
 }
 
 fn print_usage() {
-    println!("tc - bittorrent client");
+    println!("torr - bittorrent client");
     println!();
     println!("usage:");
-    println!("  tc [-l <location>] <file_or_url>     download torrent directly");
-    println!("  tc download [-l <location>] <source> download torrent");
-    println!("  tc status <source>                   show torrent metadata");
-    println!("  tc peers <source>                    list peers from tracker");
-    println!("  tc verify <source> <file>            verify downloaded file");
+    println!("  torr [-l <location>] <file_or_url>     download torrent directly");
+    println!("  torr download [-l <location>] <source> download torrent");
+    println!("  torr status <source>                   show torrent metadata");
+    println!("  torr peers <source>                    list peers from tracker");
+    println!("  torr verify <source> <file>            verify downloaded file");
 }

@@ -31,7 +31,7 @@ pub fn announce(
     );
 
     let response = ureq::get(&url)
-        .header("User-Agent", "tc/0.1.0")
+        .header("User-Agent", "torr/0.1.0")
         .call()
         .map_err(|e| format!("tracker request failed: {e}"))?;
 
