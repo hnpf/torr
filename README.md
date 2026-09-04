@@ -1,57 +1,110 @@
 # torr
-torr is a git-like bittorrent client, no gui, no unnecessary bloat, just porcelain commands over a real wire protocol implementation
 
----
-## plans/todo
-
-
-| status | feature                      | info                                                                                                                                                                          |
-| :----: | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-|   [/]  | **daemon**                   | bg process for cli to talk over unix socket, so ts status can work instantly without needing to spin up a swarm connection                                                    |
-
----
-
-## why?
-
-Most bittorrent clients are either bloated and hard to read (ahem, qbittorrent) or abandoned single shotted python files. 
-With this project, it implements the peer wire protocol and bencode format from scratch, with no external torrent libraries, with a cli that takes inspiration from git's porcelain/plumbing philosophy.
+`torr` is a git-like bittorrent client, has no gui, no unnecessary bloat and distractions, just porcelain commands over a true wire protocol implementation!
 
 ---
 
 ## install
 
-not any time soon, planning on including prebuilt binaries WHEN IT'S READY! :)
+### quick install (script)
+
+```bash
+curl -sSL https://raw.githubusercontent.com/hnpf/tc/main/install.sh | bash
+```
+
+Or from source:
+
+```bash
+git clone https://github.com/hnpf/tc.git
+cd tc
+./install.sh
+```
+
+*(This builds `torr` in release mode and copies the binary to `~/.local/bin/torr`)*
 
 ---
 
-## file architecture
+## usage
 
+### download a torrent (from URL or file)
 
+```bash
+# download straight to current directory
+torr https://torrentsite.com/file.torrent
+
+# specify output directory with -l
+torr -l . https://torrentsite.com/file.torrent
+torr -l ~/Downloads ubuntu.torrent
+
+# explicit download command
+torr download -l . https://torrentsite.com/file.torrent
 ```
-core/
-  bencode.rs         bencode encoder/decoder (building this first, w/ no lib)
-  torrent.rs         .torrent file parsing and magnet link parsing
-  tracker.rs         HTTP + UDP tracker announce/scrape
-  peer.rs            peer wire protocol (handshake, msgs, keep-alive)
-  piece.rs           piece selection algo (rarest first), block requests
-  storage.rs         disk i/o, piece verification w/ sha1, sparse file alloc hopefully
-  dht.rs             BEP 5 mainline DHT to get trackerless torrents
 
-cli/
-  main.rs            arg parsing and command dispatch
-  commands/
-    add.rs
-    status.rs
-    verify.rs
-    peers.rs
-    status.rs
-    remove.rs
+### inspect torrent metadata
+
+```bash
+torr status https://torrentsite.com/file.torrent
 ```
+
+### list swarm peers from tracker
+
+```bash
+torr peers ubuntu.torrent
+```
+
+### verify downloaded file integrity
+
+```bash
+torr verify ubuntu.torrent ubuntu-26.04-desktop-amd64.iso
+```
+
 ---
 
-## Contributing
+## commands & options
 
-Contributions are welcome! Feel free to open issues for bug reports or feature requests, and submit pull requests.
+| command / flag | description |
+|---|---|
+| `torr <source>` | Download directly from a `.torrent` file or HTTP(S) URL |
+| `torr -l <dir>` | Specify target download directory or output path |
+| `torr status <source>` | Show torrent name, size, piece count, tracker URL, and info hash |
+| `torr peers <source>` | Announce to tracker and list reachable peer IPs/ports |
+| `torr verify <source> <file>` | Validate downloaded piece hashes against the torrent specification |
+| `torr -h, --help` | Show usage instructions |
+
+---
+
+## architecture
+
+```
+src/
+├── core/
+│   ├── bencode.rs     Bencode recursive parser and encoder
+│   ├── torrent.rs     .torrent parsing, info-hash hashing, URL fetching
+│   ├── tracker.rs     HTTP tracker announce and peer decoding (compact & dictionary)
+│   ├── peer.rs        Peer wire protocol (handshake, bitfield, messages, unchoke)
+│   ├── piece.rs       Block slicing (16 KiB blocks), assembly, SHA1 verification
+│   ├── storage.rs     Disk I/O, piece writing, and file verification
+│   └── download.rs    Download orchestrator, peer manager, resume support
+├── cli/
+│   ├── commands/      Command handlers (add, status, peers, verify)
+│   └── mod.rs
+└── main.rs            CLI flags and entrypoint dispatch
+```
+
+---
+
+## roadmap
+
+- [x] Full bencode encode/decode engine
+- [x] Single-file `.torrent` parsing & SHA1 info-hash calculation
+- [x] HTTP tracker announcing (compact IPv4 & dictionary IPv6/v4)
+- [x] Peer wire protocol (handshake, bitfields, choke/unchoke negotiation, block requests)
+- [x] Storage manager with sparse piece writes and verification
+- [x] End-to-end download coordinator with automatic resume
+- [x] Fetch `.torrent` directly from HTTP/HTTPS links
+- [ ] Multi-file torrent support
+- [ ] BEP 5 Mainline DHT for trackerless torrents
+- [ ] Background daemon mode with socket IPC
 
 ---
 
