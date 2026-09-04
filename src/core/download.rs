@@ -23,6 +23,19 @@ pub struct DownloadSession {
     pub port: u16,
 }
 
+use std::time::Instant;
+
+#[derive(Debug, Clone)]
+pub struct ProgressInfo {
+    pub completed_pieces: usize,
+    pub total_pieces: usize,
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+    pub speed_bps: f64,
+    pub eta_seconds: Option<u64>,
+    pub active_peers: usize,
+}
+
 impl DownloadSession {
     pub fn new(torrent: TorrentFile, output_path: impl AsRef<Path>) -> Result<Self, String> {
         let path = output_path.as_ref();
@@ -69,7 +82,7 @@ impl DownloadSession {
 
     pub fn download_all<F>(&mut self, mut on_progress: F) -> Result<(), String>
     where
-        F: FnMut(usize, usize),
+        F: FnMut(&ProgressInfo),
     {
         if self.is_complete() {
             return Ok(());
@@ -86,6 +99,10 @@ impl DownloadSession {
         if peers.is_empty() {
             return Err("tracker returned no peers".into());
         }
+
+        let start_time = Instant::now();
+        let total_bytes = self.torrent.length as u64;
+        let mut session_bytes = 0u64;
 
         for addr in peers {
             if self.is_complete() {
@@ -126,7 +143,32 @@ impl DownloadSession {
                             break;
                         }
                         self.completed_pieces[idx] = true;
-                        on_progress(self.completed_count(), self.torrent.pieces.len());
+                        session_bytes += piece_size as u64;
+
+                        let elapsed = start_time.elapsed().as_secs_f64();
+                        let speed_bps = if elapsed > 0.05 {
+                            session_bytes as f64 / elapsed
+                        } else {
+                            0.0
+                        };
+
+                        let left = self.left_bytes() as u64;
+                        let downloaded_bytes = total_bytes.saturating_sub(left);
+                        let eta_seconds = if speed_bps > 500.0 && left > 0 {
+                            Some((left as f64 / speed_bps) as u64)
+                        } else {
+                            None
+                        };
+
+                        on_progress(&ProgressInfo {
+                            completed_pieces: self.completed_count(),
+                            total_pieces: self.torrent.pieces.len(),
+                            downloaded_bytes,
+                            total_bytes,
+                            speed_bps,
+                            eta_seconds,
+                            active_peers: 1,
+                        });
                     }
                     Err(_) => {
                         break;
@@ -275,10 +317,10 @@ mod tests {
         let mut session = DownloadSession::new(torrent, &file_path).unwrap();
         let mut progress_calls = 0;
         session
-            .download_all(|done, total| {
+            .download_all(|info| {
                 progress_calls += 1;
-                assert_eq!(done, 1);
-                assert_eq!(total, 1);
+                assert_eq!(info.completed_pieces, 1);
+                assert_eq!(info.total_pieces, 1);
             })
             .unwrap();
 

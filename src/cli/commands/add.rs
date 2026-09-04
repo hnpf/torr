@@ -19,9 +19,9 @@ pub fn run(source: &str, output_location: Option<&str>) -> Result<(), String> {
     let total = session.torrent.pieces.len();
     println!("Starting download ({} pieces, total {} bytes)...", total, session.torrent.length);
 
-    session.download_all(|done, total_pieces| {
-        let percent = (done as f64 / total_pieces as f64) * 100.0;
-        print!("\rProgress: [{}/{}] {:.1}%", done, total_pieces, percent);
+    session.download_all(|info| {
+        let hud = crate::cli::progress::render_hud(info);
+        print!("\r\x1b[K{}", hud);
         let _ = std::io::stdout().flush();
     })?;
 
