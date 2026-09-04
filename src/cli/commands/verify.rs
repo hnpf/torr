@@ -1,11 +1,9 @@
 use crate::core::storage::Storage;
 use crate::core::torrent;
-use std::fs;
 use std::path::Path;
 
-pub fn run(torrent_path: impl AsRef<Path>, target_file: impl AsRef<Path>) -> Result<(), String> {
-    let data = fs::read(torrent_path).map_err(|e| e.to_string())?;
-    let torrent = torrent::parse(&data)?;
+pub fn run(source: &str, target_file: impl AsRef<Path>) -> Result<(), String> {
+    let torrent = torrent::load_source(source)?;
 
     println!("Verifying file {:?} against torrent...", target_file.as_ref());
     let mut storage = Storage::open(target_file, torrent.piece_length as u32)?;

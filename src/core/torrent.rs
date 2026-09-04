@@ -71,6 +71,30 @@ pub fn parse(data: &[u8]) -> Result<TorrentFile, String> {
     Ok(TorrentFile { announce, info_hash, piece_length, pieces, name, length })
 }
 
+pub fn load_bytes(source: &str) -> Result<Vec<u8>, String> {
+    if source.starts_with("http://") || source.starts_with("https://") {
+        use std::io::Read;
+        let response = ureq::get(source)
+            .header("User-Agent", "tc/0.1.0")
+            .call()
+            .map_err(|e| format!("failed to fetch torrent from '{source}': {e}"))?;
+        let mut body = Vec::new();
+        response
+            .into_body()
+            .into_reader()
+            .read_to_end(&mut body)
+            .map_err(|e| format!("failed to read torrent response: {e}"))?;
+        Ok(body)
+    } else {
+        std::fs::read(source).map_err(|e| format!("failed to read torrent file '{source}': {e}"))
+    }
+}
+
+pub fn load_source(source: &str) -> Result<TorrentFile, String> {
+    let data = load_bytes(source)?;
+    parse(&data)
+}
+
 fn get_string(dict: &BTreeMap<Vec<u8>, BencodeValue>, key: &str) -> Result<String, String> {
     match dict.get(key.as_bytes()) {
         Some(BencodeValue::Bytes(b)) => String::from_utf8(b.clone()).map_err(|_| "bad utf8".into()),
@@ -104,5 +128,41 @@ mod tests {
         assert_eq!(torrent.pieces.len(), 24868);
         assert_eq!(torrent.piece_size(0), 256 * 1024);
         assert_eq!(torrent.piece_size(24867), (torrent.length % (256 * 1024)) as usize);
+    }
+
+    #[test]
+    fn load_source_fetches_from_http_url() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::net::TcpListener;
+
+        let torrent_data = std::fs::read("test_data/ubuntu.torrent").unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let data_clone = torrent_data.clone();
+
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(&mut socket);
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap() > 0 {
+                if line == "\r\n" || line == "\n" {
+                    break;
+                }
+                line.clear();
+            }
+
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/x-bittorrent\r\n\r\n",
+                data_clone.len()
+            );
+            socket.write_all(response.as_bytes()).unwrap();
+            socket.write_all(&data_clone).unwrap();
+        });
+
+        let url = format!("http://127.0.0.1:{}/ubuntu.torrent", addr.port());
+        let torrent = load_source(&url).unwrap();
+        assert_eq!(torrent.name, "ubuntu-26.04-desktop-amd64.iso");
+
+        server.join().unwrap();
     }
 }

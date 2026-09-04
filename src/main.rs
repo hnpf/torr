@@ -5,50 +5,73 @@ use std::env;
 use std::process;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
+    let args: Vec<String> = env::args().skip(1).collect();
+    if args.is_empty() {
         print_usage();
         process::exit(1);
     }
 
-    let result = match args[1].as_str() {
+    let mut location: Option<String> = None;
+    let mut positional: Vec<String> = Vec::new();
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-l" | "--location" | "-o" | "--output" => {
+                if i + 1 >= args.len() {
+                    eprintln!("error: missing argument for {}", args[i]);
+                    process::exit(1);
+                }
+                location = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "-h" | "--help" | "help" => {
+                print_usage();
+                return;
+            }
+            arg => {
+                positional.push(arg.to_string());
+                i += 1;
+            }
+        }
+    }
+
+    if positional.is_empty() {
+        print_usage();
+        process::exit(1);
+    }
+
+    let result = match positional[0].as_str() {
         "download" | "add" => {
-            if args.len() < 3 {
-                eprintln!("usage: tc download <torrent_path> [output_path]");
+            if positional.len() < 2 {
+                eprintln!("usage: tc download [-l <location>] <torrent_source>");
                 process::exit(1);
             }
-            let output = if args.len() > 3 { Some(&args[3]) } else { None };
-            cli::commands::add::run(&args[2], output)
+            cli::commands::add::run(&positional[1], location.as_deref())
         }
         "status" | "info" => {
-            if args.len() < 3 {
-                eprintln!("usage: tc status <torrent_path>");
+            if positional.len() < 2 {
+                eprintln!("usage: tc status <torrent_source>");
                 process::exit(1);
             }
-            cli::commands::status::run(&args[2])
+            cli::commands::status::run(&positional[1])
         }
         "peers" => {
-            if args.len() < 3 {
-                eprintln!("usage: tc peers <torrent_path>");
+            if positional.len() < 2 {
+                eprintln!("usage: tc peers <torrent_source>");
                 process::exit(1);
             }
-            cli::commands::peers::run(&args[2])
+            cli::commands::peers::run(&positional[1])
         }
         "verify" => {
-            if args.len() < 4 {
-                eprintln!("usage: tc verify <torrent_path> <file_path>");
+            if positional.len() < 3 {
+                eprintln!("usage: tc verify <torrent_source> <file_path>");
                 process::exit(1);
             }
-            cli::commands::verify::run(&args[2], &args[3])
+            cli::commands::verify::run(&positional[1], &positional[2])
         }
-        "help" | "--help" | "-h" => {
-            print_usage();
-            Ok(())
-        }
-        unknown => {
-            eprintln!("unknown command: {unknown}");
-            print_usage();
-            process::exit(1);
+        source => {
+            cli::commands::add::run(source, location.as_deref())
         }
     };
 
@@ -62,8 +85,9 @@ fn print_usage() {
     println!("tc - bittorrent client");
     println!();
     println!("usage:");
-    println!("  tc download <file.torrent> [output]  download a torrent");
-    println!("  tc status <file.torrent>             show torrent metadata");
-    println!("  tc peers <file.torrent>              fetch and list peers from tracker");
-    println!("  tc verify <file.torrent> <file>      verify an existing downloaded file");
+    println!("  tc [-l <location>] <file_or_url>     download torrent directly");
+    println!("  tc download [-l <location>] <source> download torrent");
+    println!("  tc status <source>                   show torrent metadata");
+    println!("  tc peers <source>                    list peers from tracker");
+    println!("  tc verify <source> <file>            verify downloaded file");
 }

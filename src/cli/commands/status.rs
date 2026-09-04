@@ -1,10 +1,7 @@
 use crate::core::torrent;
-use std::fs;
-use std::path::Path;
 
-pub fn run(torrent_path: impl AsRef<Path>) -> Result<(), String> {
-    let data = fs::read(torrent_path).map_err(|e| e.to_string())?;
-    let torrent = torrent::parse(&data)?;
+pub fn run(source: &str) -> Result<(), String> {
+    let torrent = torrent::load_source(source)?;
 
     let hash_hex: String = torrent.info_hash.iter().map(|b| format!("{:02x}", b)).collect();
     println!("Name:        {}", torrent.name);

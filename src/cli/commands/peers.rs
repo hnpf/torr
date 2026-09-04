@@ -1,11 +1,8 @@
 use crate::core::download::generate_peer_id;
 use crate::core::{torrent, tracker};
-use std::fs;
-use std::path::Path;
 
-pub fn run(torrent_path: impl AsRef<Path>) -> Result<(), String> {
-    let data = fs::read(torrent_path).map_err(|e| e.to_string())?;
-    let torrent = torrent::parse(&data)?;
+pub fn run(source: &str) -> Result<(), String> {
+    let torrent = torrent::load_source(source)?;
     let peer_id = generate_peer_id();
 
     println!("Announcing to tracker: {}", torrent.announce);
