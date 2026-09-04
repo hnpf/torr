@@ -77,6 +77,7 @@ impl PiecePicker {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ProgressInfo {
     pub completed_pieces: usize,
@@ -267,9 +268,12 @@ impl DownloadSession {
                 break;
             }
 
-            match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+            match rx.recv_timeout(std::time::Duration::from_millis(150)) {
                 Ok(piece_size) => {
                     session_bytes += piece_size as u64;
+                    while let Ok(extra) = rx.try_recv() {
+                        session_bytes += extra as u64;
+                    }
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => {

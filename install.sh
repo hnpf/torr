@@ -14,7 +14,7 @@ mkdir -p "$INSTALL_DIR"
 if [ -f "Cargo.toml" ] && grep -q 'name = "torr"' Cargo.toml 2>/dev/null; then
     echo "==> Building torr from local directory..."
     cargo build --release
-    cp "target/release/torr" "$INSTALL_DIR/torr"
+    install -m 755 "target/release/torr" "$INSTALL_DIR/torr"
 else
     TMP_DIR="$(mktemp -d)"
     trap 'rm -rf "$TMP_DIR"' EXIT
@@ -25,10 +25,8 @@ else
 
     echo "==> Building torr..."
     cargo build --release
-    cp "target/release/torr" "$INSTALL_DIR/torr"
+    install -m 755 "target/release/torr" "$INSTALL_DIR/torr"
 fi
-
-chmod +x "$INSTALL_DIR/torr"
 
 echo "==> Successfully installed torr to $INSTALL_DIR/torr"
 

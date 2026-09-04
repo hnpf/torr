@@ -44,24 +44,23 @@ pub fn render_hud(info: &ProgressInfo) -> String {
         0.0
     };
 
-    let bar = render_bar(percent, 20);
+    let bar = render_bar(percent, 14);
     let speed = format_speed(info.speed_bps);
     let eta = format_eta(info.eta_seconds);
     let size_done = format_bytes(info.downloaded_bytes);
     let size_total = format_bytes(info.total_bytes);
+    let peer_str = if info.active_peers == 1 { "peer" } else { "peers" };
 
     format!(
-        "{} {:5.1}% • {}/{} • {} • ETA {} • {}/{} pieces ({} peer{})",
+        "{} {:5.1}% • {}/{} • {} • ETA {} ({} {})",
         bar,
         percent,
         size_done,
         size_total,
         speed,
         eta,
-        info.completed_pieces,
-        info.total_pieces,
         info.active_peers,
-        if info.active_peers == 1 { "" } else { "s" }
+        peer_str
     )
 }
 
