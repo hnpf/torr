@@ -3,6 +3,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Storage {
     file: File,
@@ -11,6 +12,7 @@ pub struct Storage {
     pub path: PathBuf,
 }
 
+#[allow(dead_code)]
 impl Storage {
     pub fn create(path: impl AsRef<Path>, piece_length: u32, length: u64) -> Result<Self, String> {
         let path = path.as_ref().to_path_buf();
