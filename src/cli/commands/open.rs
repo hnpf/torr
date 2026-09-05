@@ -30,7 +30,7 @@ pub fn run(source: &str, interactive_flag: bool, location: Option<&str>) -> Resu
         process::exit(0);
     }
 
-    println!("torr - torrent launcher");
+    println!("torr - lightweight bittorrent client");
     if source.starts_with("magnet:") {
         if let Ok(m) = crate::core::magnet::parse_magnet_uri(source) {
             if let Some(name) = m.display_name {
@@ -67,12 +67,12 @@ pub fn run(source: &str, interactive_flag: bool, location: Option<&str>) -> Resu
         println!("Options:");
         println!("  [Enter] Download to {}", default_dir.display());
         if !active_vpns.is_empty() {
-            println!("  [v]     Download via VPN ({}) with killswitch", active_vpns[0].name);
+            println!("  [v]     Start download via VPN ({}) with killswitch", active_vpns[0].name);
         }
-        println!("  [1]     Download to current directory (.)");
-        println!("  [2]     Specify custom download path");
-        println!("  [3]     Inspect status / info only");
-        println!("  [q]     Cancel");
+        println!("  [1]     download to current dir (.)");
+        println!("  [2]     specify custom download path");
+        println!("  [3]     inspect status / info only");
+        println!("  [q]     cancel");
         println!();
         print!("Select [default: Enter]: ");
         let _ = io::stdout().flush();
