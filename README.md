@@ -99,10 +99,13 @@ src/
 - [x] Single-file `.torrent` parsing & SHA1 info-hash calculation
 - [x] HTTP tracker announcing (compact IPv4 & dictionary IPv6/v4)
 - [x] Peer wire protocol (handshake, bitfields, choke/unchoke negotiation, block requests)
+- [x] Concurrent multi-peer swarm worker pool
 - [x] Storage manager with sparse piece writes and verification
 - [x] End-to-end download coordinator with automatic resume
 - [x] Fetch `.torrent` directly from HTTP/HTTPS links
-- [ ] Multi-file torrent support
+- [x] Multi-file torrent support & cross-file boundary spans
+- [ ] Magnet link support (`magnet:?xt=urn:btih:...`)
+- [ ] VPN interface binding with automatic killswitch
 - [ ] BEP 5 Mainline DHT for trackerless torrents
 - [ ] Background daemon mode with socket IPC
 
