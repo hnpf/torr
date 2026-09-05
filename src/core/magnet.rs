@@ -320,6 +320,87 @@ pub fn fetch_metadata_from_peer(
     Ok(assembled)
 }
 
+pub fn fetch_metadata_from_swarm(
+    addrs: &[std::net::SocketAddr],
+    info_hash: &[u8; 20],
+    peer_id: &[u8; 20],
+) -> Result<Vec<u8>, String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::thread;
+
+    let (tx, rx) = mpsc::channel();
+    let found = Arc::new(AtomicBool::new(false));
+    let peer_queue = Arc::new(Mutex::new(addrs.to_vec()));
+    let num_workers = 16.min(addrs.len().max(1));
+    let mut handles = Vec::new();
+
+    for _ in 0..num_workers {
+        let queue = Arc::clone(&peer_queue);
+        let found_flag = Arc::clone(&found);
+        let tx_clone = tx.clone();
+        let hash = *info_hash;
+        let pid = *peer_id;
+
+        let handle = thread::spawn(move || {
+            while !found_flag.load(Ordering::Relaxed) {
+                let addr = {
+                    let mut q = queue.lock().unwrap();
+                    q.pop()
+                };
+
+                let addr = match addr {
+                    Some(a) => a,
+                    None => break,
+                };
+
+                let conn_res = PeerConnection::connect_timeout(
+                    addr,
+                    hash,
+                    pid,
+                    std::time::Duration::from_millis(2500),
+                );
+
+                let mut conn = match conn_res {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+
+                if !conn.remote_handshake.supports_extended() {
+                    continue;
+                }
+
+                if let Ok(metadata) = fetch_metadata_from_peer(&mut conn, &hash) {
+                    found_flag.store(true, Ordering::Relaxed);
+                    let _ = tx_clone.send(metadata);
+                    break;
+                }
+            }
+        });
+
+        handles.push(handle);
+    }
+
+    drop(tx);
+
+    match rx.recv_timeout(std::time::Duration::from_secs(20)) {
+        Ok(metadata) => {
+            found.store(true, Ordering::Relaxed);
+            for h in handles {
+                let _ = h.join();
+            }
+            Ok(metadata)
+        }
+        Err(_) => {
+            found.store(true, Ordering::Relaxed);
+            for h in handles {
+                let _ = h.join();
+            }
+            Err("could not retrieve metadata from swarm peers".into())
+        }
+    }
+}
+
 pub fn fetch_torrent(magnet_uri: &str) -> Result<TorrentFile, String> {
     let magnet = parse_magnet_uri(magnet_uri)?;
 
@@ -362,37 +443,20 @@ pub fn fetch_torrent(magnet_uri: &str) -> Result<TorrentFile, String> {
             }
         };
 
-        println!("Found {} peers from tracker. Contacting swarm for metadata...", addrs.len());
+        println!("Found {} peers from tracker. Probing swarm concurrently for metadata...", addrs.len());
 
-        for addr in addrs {
-            let conn_res = PeerConnection::connect_timeout(
-                addr,
-                magnet.info_hash,
-                peer_id,
-                std::time::Duration::from_secs(4),
-            );
-
-            let mut conn = match conn_res {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-
-            if !conn.remote_handshake.supports_extended() {
-                continue;
+        match fetch_metadata_from_swarm(&addrs, &magnet.info_hash, &peer_id) {
+            Ok(info_bytes) => {
+                println!("Metadata downloaded and verified successfully.");
+                return crate::core::torrent::from_info_bytes(
+                    &info_bytes,
+                    tr,
+                    magnet.display_name.as_deref(),
+                );
             }
-
-            match fetch_metadata_from_peer(&mut conn, &magnet.info_hash) {
-                Ok(info_bytes) => {
-                    println!("Metadata downloaded and verified successfully.");
-                    return crate::core::torrent::from_info_bytes(
-                        &info_bytes,
-                        tr,
-                        magnet.display_name.as_deref(),
-                    );
-                }
-                Err(e) => {
-                    last_err = format!("failed to get metadata from peer {}: {}", addr, e);
-                }
+            Err(e) => {
+                println!("  Metadata fetch from this tracker's peers failed ({}). Trying next tracker...", e);
+                last_err = e;
             }
         }
     }
