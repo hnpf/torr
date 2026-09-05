@@ -26,14 +26,18 @@ cd tc
 
 ## usage
 
-### download a torrent (from URL or file)
+### download a torrent (from URL, file, or magnet link)
 
 ```bash
 # download straight to current directory
 torr https://torrentsite.com/file.torrent
 
+# download directly from a magnet link
+torr 'magnet:?xt=urn:btih:dafc8c076ca2f3ed376eeae7c76a0d6be2415c45&dn=ubuntu.iso'
+
 # specify output directory with -l
 torr -l . https://torrentsite.com/file.torrent
+torr -l ~/Downloads 'magnet:?xt=urn:btih:...'
 torr -l ~/Downloads ubuntu.torrent
 
 # explicit download command
@@ -84,7 +88,8 @@ src/
 │   ├── peer.rs        Peer wire protocol (handshake, bitfield, messages, unchoke)
 │   ├── piece.rs       Block slicing (16 KiB blocks), assembly, SHA1 verification
 │   ├── storage.rs     Disk I/O, piece writing, and file verification
-│   └── download.rs    Download orchestrator, peer manager, resume support
+│   ├── download.rs    Download orchestrator, peer manager, resume support
+│   └── magnet.rs      BEP 9 / BEP 10 magnet link resolution & metadata exchange
 ├── cli/
 │   ├── commands/      Command handlers (add, status, peers, verify)
 │   └── mod.rs
@@ -104,7 +109,7 @@ src/
 - [x] End-to-end download coordinator with automatic resume
 - [x] Fetch `.torrent` directly from HTTP/HTTPS links
 - [x] Multi-file torrent support & cross-file boundary spans
-- [ ] Magnet link support (`magnet:?xt=urn:btih:...`)
+- [x] Magnet link support (`magnet:?xt=urn:btih:...`)
 - [ ] VPN interface binding with automatic killswitch
 - [ ] BEP 5 Mainline DHT for trackerless torrents
 - [ ] Background daemon mode with socket IPC

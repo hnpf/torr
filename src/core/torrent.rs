@@ -41,31 +41,25 @@ impl TorrentFile {
     }
 }
 
-pub fn parse(data: &[u8]) -> Result<TorrentFile, String> {
-    let (decoded, _) = crate::core::bencode::decode(data)?;
-    
-    let root = match decoded {
+pub fn from_info_bytes(info_bytes: &[u8], announce: &str, fallback_name: Option<&str>) -> Result<TorrentFile, String> {
+    let (decoded, _) = crate::core::bencode::decode(info_bytes)?;
+    let info = match decoded {
         BencodeValue::Dict(d) => d,
-        _ => return Err("torrent file root has to be a dict".into()),
+        _ => return Err("info must be a dict".into()),
     };
 
-    let announce = get_string(&root, "announce")?;
-    
-    let info = match root.get("info".as_bytes()) {
-        Some(BencodeValue::Dict(d)) => d,
-        _ => return Err("missing info dict".into()),
-    };
-
-    // re-encode only the info dict to compute info_hash
-    let info_value = BencodeValue::Dict(info.clone());
-    let info_bytes = info_value.encode();
     let mut hasher = Sha1::new();
-    hasher.update(&info_bytes);
+    hasher.update(info_bytes);
     let info_hash: [u8; 20] = hasher.finalize().into();
 
-    let piece_length = get_int(info, "piece length")?;
-    let name = get_string(info, "name")?;
-    
+    let piece_length = get_int(&info, "piece length")?;
+    let name = match get_string(&info, "name") {
+        Ok(n) => n,
+        Err(_) => fallback_name
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| info_hash.iter().map(|b| format!("{:02x}", b)).collect()),
+    };
+
     let (length, files) = match info.get("files".as_bytes()) {
         Some(BencodeValue::List(file_list)) => {
             let mut files = Vec::new();
@@ -102,11 +96,11 @@ pub fn parse(data: &[u8]) -> Result<TorrentFile, String> {
             (total_len, files)
         }
         _ => {
-            let file_len = get_int(info, "length")?;
+            let file_len = get_int(&info, "length")?;
             (file_len, Vec::new())
         }
     };
-    
+
     let pieces_raw = match info.get("pieces".as_bytes()) {
         Some(BencodeValue::Bytes(b)) => b,
         _ => return Err("missing pieces".into()),
@@ -119,7 +113,35 @@ pub fn parse(data: &[u8]) -> Result<TorrentFile, String> {
         .map(|chunk| chunk.try_into().unwrap())
         .collect();
 
-    Ok(TorrentFile { announce, info_hash, piece_length, pieces, name, length, files })
+    Ok(TorrentFile {
+        announce: announce.to_string(),
+        info_hash,
+        piece_length,
+        pieces,
+        name,
+        length,
+        files,
+    })
+}
+
+pub fn parse(data: &[u8]) -> Result<TorrentFile, String> {
+    let (decoded, _) = crate::core::bencode::decode(data)?;
+
+    let root = match decoded {
+        BencodeValue::Dict(d) => d,
+        _ => return Err("torrent file root has to be a dict".into()),
+    };
+
+    let announce = get_string(&root, "announce")?;
+
+    let info = match root.get("info".as_bytes()) {
+        Some(BencodeValue::Dict(d)) => d,
+        _ => return Err("missing info dict".into()),
+    };
+
+    let info_value = BencodeValue::Dict(info.clone());
+    let info_bytes = info_value.encode();
+    from_info_bytes(&info_bytes, &announce, None)
 }
 
 pub fn load_bytes(source: &str) -> Result<Vec<u8>, String> {
@@ -142,8 +164,12 @@ pub fn load_bytes(source: &str) -> Result<Vec<u8>, String> {
 }
 
 pub fn load_source(source: &str) -> Result<TorrentFile, String> {
-    let data = load_bytes(source)?;
-    parse(&data)
+    if source.starts_with("magnet:") {
+        crate::core::magnet::fetch_torrent(source)
+    } else {
+        let data = load_bytes(source)?;
+        parse(&data)
+    }
 }
 
 fn get_string(dict: &BTreeMap<Vec<u8>, BencodeValue>, key: &str) -> Result<String, String> {
@@ -179,6 +205,24 @@ mod tests {
         assert_eq!(torrent.pieces.len(), 24868);
         assert_eq!(torrent.piece_size(0), 256 * 1024);
         assert_eq!(torrent.piece_size(24867), (torrent.length % (256 * 1024)) as usize);
+    }
+
+    #[test]
+    fn from_info_bytes_creates_valid_torrent_file() {
+        let mut info_dict = BTreeMap::new();
+        info_dict.insert(b"name".to_vec(), BencodeValue::Bytes(b"sample.iso".to_vec()));
+        info_dict.insert(b"piece length".to_vec(), BencodeValue::Int(16384));
+        info_dict.insert(b"pieces".to_vec(), BencodeValue::Bytes(vec![0x42u8; 20]));
+        info_dict.insert(b"length".to_vec(), BencodeValue::Int(16384));
+
+        let encoded_info = BencodeValue::Dict(info_dict).encode();
+        let torrent = from_info_bytes(&encoded_info, "http://tracker.test/announce", None).unwrap();
+
+        assert_eq!(torrent.name, "sample.iso");
+        assert_eq!(torrent.length, 16384);
+        assert_eq!(torrent.piece_length, 16384);
+        assert_eq!(torrent.pieces.len(), 1);
+        assert_eq!(torrent.announce, "http://tracker.test/announce");
     }
 
     #[test]

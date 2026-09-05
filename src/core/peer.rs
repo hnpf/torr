@@ -16,11 +16,17 @@ pub struct Handshake {
 
 impl Handshake {
     pub fn new(info_hash: [u8; 20], peer_id: [u8; 20]) -> Self {
+        let mut reserved = [0u8; 8];
+        reserved[5] |= 0x10;
         Self {
             info_hash,
             peer_id,
-            reserved: [0; 8],
+            reserved,
         }
+    }
+
+    pub fn supports_extended(&self) -> bool {
+        (self.reserved[5] & 0x10) != 0
     }
 
     pub fn encode(&self) -> Vec<u8> {
@@ -142,6 +148,24 @@ impl PeerConnection {
         Ok(PeerConnection { stream, remote_handshake })
     }
 
+    pub fn connect_timeout(
+        addr: SocketAddr,
+        info_hash: [u8; 20],
+        peer_id: [u8; 20],
+        timeout: std::time::Duration,
+    ) -> Result<Self, String> {
+        let mut stream = TcpStream::connect_timeout(&addr, timeout).map_err(|e| e.to_string())?;
+        let _ = stream.set_read_timeout(Some(timeout));
+        let _ = stream.set_write_timeout(Some(timeout));
+        let outgoing = Handshake::new(info_hash, peer_id);
+        outgoing.write_to(&mut stream)?;
+
+        let remote_handshake = Handshake::read_from(&mut stream)?;
+        remote_handshake.verify_info_hash(&info_hash)?;
+
+        Ok(PeerConnection { stream, remote_handshake })
+    }
+
     pub fn connect_addrs(addrs: &[SocketAddr], info_hash: [u8; 20], peer_id: [u8; 20]) -> Result<Self, String> {
         let mut last_error: Option<String> = None;
         for &addr in addrs {
@@ -209,6 +233,10 @@ impl PeerConnection {
 
     pub fn send_keepalive(&mut self) -> Result<(), String> {
         self.send_message(&Message::KeepAlive)
+    }
+
+    pub fn send_extended(&mut self, ext_id: u8, payload: Vec<u8>) -> Result<(), String> {
+        self.send_message(&Message::Extended { ext_id, payload })
     }
 }
 
@@ -363,6 +391,7 @@ pub enum Message {
     Piece { index: u32, begin: u32, block: Vec<u8> },
     Cancel { index: u32, begin: u32, length: u32 },
     Port(u16),
+    Extended { ext_id: u8, payload: Vec<u8> },
 }
 
 impl Message {
@@ -421,6 +450,15 @@ impl Message {
                 buf.extend_from_slice(&3u32.to_be_bytes());
                 buf.push(9);
                 buf.extend_from_slice(&port.to_be_bytes());
+                buf
+            }
+            Message::Extended { ext_id, payload } => {
+                let len = 2 + payload.len() as u32;
+                let mut buf = Vec::with_capacity(4 + len as usize);
+                buf.extend_from_slice(&len.to_be_bytes());
+                buf.push(20);
+                buf.push(*ext_id);
+                buf.extend_from_slice(payload);
                 buf
             }
         }
@@ -490,6 +528,14 @@ impl Message {
                 let port = u16::from_be_bytes(payload.try_into().unwrap());
                 Message::Port(port)
             }
+            20 => {
+                if payload.is_empty() {
+                    return Err("extended message missing ext_id".into());
+                }
+                let ext_id = payload[0];
+                let payload = payload[1..].to_vec();
+                Message::Extended { ext_id, payload }
+            }
             _ => return Err(format!("unknown message id: {}", id)),
         };
 
@@ -533,7 +579,8 @@ mod tests {
         assert_eq!(rest.len(), 0);
         assert_eq!(decoded.info_hash, info_hash);
         assert_eq!(decoded.peer_id, peer_id);
-        assert_eq!(decoded.reserved, [0; 8]);
+        assert!(decoded.supports_extended());
+        assert_eq!(decoded.reserved[5], 0x10);
     }
 
     #[test]
@@ -550,6 +597,7 @@ mod tests {
             Message::Piece { index: 1, begin: 0, block: vec![1, 2, 3, 4] },
             Message::Cancel { index: 1, begin: 0, length: 16384 },
             Message::Port(6881),
+            Message::Extended { ext_id: 1, payload: vec![1, 2, 3, 4] },
         ];
 
         let mut buf = Vec::new();

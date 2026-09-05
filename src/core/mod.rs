@@ -5,3 +5,4 @@ pub mod piece;
 pub mod storage;
 pub mod peer;
 pub mod download;
+pub mod magnet;
