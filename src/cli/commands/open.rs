@@ -130,6 +130,10 @@ pub fn run(source: &str, interactive_flag: bool, location: Option<&str>) -> Resu
         chosen_bind.as_deref(),
     );
 
+    if let Err(ref e) = download_res {
+        eprintln!("\nError: {e}");
+    }
+
     if interactive_flag {
         pause_before_exit();
     }

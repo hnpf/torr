@@ -142,19 +142,35 @@ impl DownloadSession {
             return Ok(());
         }
 
-        let peers = crate::core::tracker::announce_addrs(
-            &self.torrent.announce,
-            &self.torrent.info_hash,
-            &self.peer_id,
-            self.port,
-            self.left_bytes(),
-        )?;
-
-        if peers.is_empty() {
-            return Err("tracker returned no peers".into());
+        let mut all_trackers = vec![self.torrent.announce.clone()];
+        for def_tr in crate::core::magnet::DEFAULT_TRACKERS {
+            if !all_trackers.iter().any(|t| t == def_tr) {
+                all_trackers.push(def_tr.to_string());
+            }
         }
 
-        self.download_with_peers(&peers, on_progress)
+        let mut all_peers = Vec::new();
+        for tr in &all_trackers {
+            if let Ok(peers) = crate::core::tracker::announce_addrs(
+                tr,
+                &self.torrent.info_hash,
+                &self.peer_id,
+                self.port,
+                self.left_bytes(),
+            ) {
+                for p in peers {
+                    if !all_peers.contains(&p) {
+                        all_peers.push(p);
+                    }
+                }
+            }
+        }
+
+        if all_peers.is_empty() {
+            return Err("no peers available from any tracker".into());
+        }
+
+        self.download_with_peers(&all_peers, on_progress)
     }
 
     pub fn download_with_peers<F>(&mut self, peers: &[std::net::SocketAddr], mut on_progress: F) -> Result<(), String>
@@ -174,7 +190,7 @@ impl DownloadSession {
         let bind_ip = self.bind_interface.as_ref().and_then(|i| i.ip);
         let vpn_monitor = self.bind_interface.as_ref().map(crate::core::vpn::VpnMonitor::new);
 
-        let max_workers = std::cmp::min(peers.len(), 16).max(1);
+        let max_workers = std::cmp::min(peers.len(), 24).max(1);
         let mut handles = Vec::new();
 
         for _ in 0..max_workers {
@@ -204,23 +220,36 @@ impl DownloadSession {
                         torrent.info_hash,
                         peer_id,
                         bind_ip,
-                        std::time::Duration::from_secs(5),
+                        std::time::Duration::from_millis(3500),
                     ) {
                         Ok(c) => c,
                         Err(_) => continue,
                     };
 
+                    let _ = conn.stream.set_read_timeout(Some(std::time::Duration::from_secs(15)));
+                    let _ = conn.stream.set_write_timeout(Some(std::time::Duration::from_secs(15)));
+
                     let mut peer = PeerState::new(conn);
                     if peer.set_interested().is_err() {
-                        continue;
-                    }
-                    if peer.wait_for_unchoke().is_err() {
                         continue;
                     }
 
                     active_peers.fetch_add(1, Ordering::SeqCst);
 
+                    let mut choked_wait_start = std::time::Instant::now();
                     while !shutdown.load(Ordering::Relaxed) {
+                        if peer.choked {
+                            if choked_wait_start.elapsed() > std::time::Duration::from_secs(20) {
+                                break;
+                            }
+                            if peer.receive_and_update().is_err() {
+                                break;
+                            }
+                            continue;
+                        }
+
+                        choked_wait_start = std::time::Instant::now();
+
                         let piece_idx = {
                             let mut p = picker.lock().unwrap();
                             if p.is_complete() {
@@ -232,7 +261,15 @@ impl DownloadSession {
 
                         let idx = match piece_idx {
                             Some(i) => i,
-                            None => break,
+                            None => {
+                                if picker.lock().unwrap().is_complete() {
+                                    break;
+                                }
+                                if peer.receive_and_update().is_err() {
+                                    break;
+                                }
+                                continue;
+                            }
                         };
 
                         let piece_size = torrent.piece_size(idx);
@@ -253,7 +290,9 @@ impl DownloadSession {
                             }
                             Err(_) => {
                                 picker.lock().unwrap().cancel_piece(idx);
-                                break;
+                                if !peer.choked {
+                                    break;
+                                }
                             }
                         }
                     }
