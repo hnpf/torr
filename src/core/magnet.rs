@@ -6,8 +6,13 @@ use std::collections::{BTreeMap, HashMap};
 
 pub const DEFAULT_TRACKERS: &[&str] = &[
     "http://tracker.opentrackr.org:1337/announce",
-    "http://open.acgnxtracker.com:80/announce",
-    "https://tracker.tamersunion.org:443/announce",
+    "http://open.stealth.si:80/announce",
+    "http://vps02.net.alien-int.net:80/announce",
+    "http://tracker.ipv6tracker.ru:80/announce",
+    "http://tracker.renapp.cn:6969/announce",
+    "https://tracker.lilithraws.org:443/announce",
+    "http://tracker.mywaifu.best:6969/announce",
+    "http://tracker.bt4g.com:2095/announce",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -232,6 +237,9 @@ pub fn fetch_metadata_from_peer(
     conn: &mut PeerConnection,
     info_hash: &[u8; 20],
 ) -> Result<Vec<u8>, String> {
+    let _ = conn.stream.set_read_timeout(Some(std::time::Duration::from_secs(8)));
+    let _ = conn.stream.set_write_timeout(Some(std::time::Duration::from_secs(8)));
+
     conn.send_extended(0, build_extended_handshake())?;
 
     let mut ext_handshake: Option<ExtendedHandshake> = None;
@@ -240,14 +248,17 @@ pub fn fetch_metadata_from_peer(
         if timeout_start.elapsed() > std::time::Duration::from_secs(10) {
             return Err("timeout waiting for extension handshake".into());
         }
-        match conn.receive_message()? {
-            Message::Extended { ext_id: 0, payload } => {
-                ext_handshake = Some(parse_extended_handshake(&payload)?);
+        match conn.receive_message() {
+            Ok(Message::Extended { ext_id: 0, payload }) => {
+                if let Ok(handshake) = parse_extended_handshake(&payload) {
+                    ext_handshake = Some(handshake);
+                }
             }
-            Message::KeepAlive | Message::Bitfield(_) | Message::Have(_) | Message::Unchoke | Message::Choke => {
+            Ok(Message::KeepAlive | Message::Bitfield(_) | Message::Have(_) | Message::Unchoke | Message::Choke | Message::Interested | Message::NotInterested | Message::Port(_) | Message::Extended { .. }) => {
                 continue;
             }
-            _ => continue,
+            Ok(_) => continue,
+            Err(e) => return Err(e),
         }
     }
 
@@ -259,24 +270,29 @@ pub fn fetch_metadata_from_peer(
 
     conn.send_extended(peer_ext_id, build_metadata_request(0))?;
 
-    let req_timeout = std::time::Duration::from_secs(15);
+    let req_timeout = std::time::Duration::from_secs(12);
     let start = std::time::Instant::now();
 
     while pieces.get(&0).is_none() {
         if start.elapsed() > req_timeout {
             return Err("timeout waiting for metadata piece 0".into());
         }
-        match conn.receive_message()? {
-            Message::Extended { ext_id, payload } if ext_id == 1 || ext_id == peer_ext_id => {
-                let (piece, total_size, data) = parse_metadata_data(&payload)?;
-                if piece == 0 {
-                    if metadata_size.is_none() {
-                        metadata_size = total_size;
+        match conn.receive_message() {
+            Ok(Message::Extended { ext_id, payload }) => {
+                if ext_id == 0 {
+                    continue;
+                }
+                if let Ok((piece, total_size, data)) = parse_metadata_data(&payload) {
+                    if piece == 0 {
+                        if metadata_size.is_none() {
+                            metadata_size = total_size;
+                        }
+                        pieces.insert(piece, data);
                     }
-                    pieces.insert(piece, data);
                 }
             }
-            _ => continue,
+            Ok(_) => continue,
+            Err(e) => return Err(e),
         }
     }
 
@@ -290,12 +306,19 @@ pub fn fetch_metadata_from_peer(
             if piece_start.elapsed() > req_timeout {
                 return Err(format!("timeout waiting for metadata piece {}", p));
             }
-            match conn.receive_message()? {
-                Message::Extended { ext_id, payload } if ext_id == 1 || ext_id == peer_ext_id => {
-                    let (piece, _, data) = parse_metadata_data(&payload)?;
-                    pieces.insert(piece, data);
+            match conn.receive_message() {
+                Ok(Message::Extended { ext_id, payload }) => {
+                    if ext_id == 0 {
+                        continue;
+                    }
+                    if let Ok((piece, _, data)) = parse_metadata_data(&payload) {
+                        if piece == p {
+                            pieces.insert(piece, data);
+                        }
+                    }
                 }
-                _ => continue,
+                Ok(_) => continue,
+                Err(e) => return Err(e),
             }
         }
     }
@@ -324,6 +347,7 @@ pub fn fetch_metadata_from_swarm(
     addrs: &[std::net::SocketAddr],
     info_hash: &[u8; 20],
     peer_id: &[u8; 20],
+    bind_ip: Option<std::net::IpAddr>,
 ) -> Result<Vec<u8>, String> {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{mpsc, Arc, Mutex};
@@ -332,7 +356,7 @@ pub fn fetch_metadata_from_swarm(
     let (tx, rx) = mpsc::channel();
     let found = Arc::new(AtomicBool::new(false));
     let peer_queue = Arc::new(Mutex::new(addrs.to_vec()));
-    let num_workers = 16.min(addrs.len().max(1));
+    let num_workers = 24.min(addrs.len().max(1));
     let mut handles = Vec::new();
 
     for _ in 0..num_workers {
@@ -354,11 +378,12 @@ pub fn fetch_metadata_from_swarm(
                     None => break,
                 };
 
-                let conn_res = PeerConnection::connect_timeout(
+                let conn_res = PeerConnection::connect_bound(
                     addr,
                     hash,
                     pid,
-                    std::time::Duration::from_millis(2500),
+                    bind_ip,
+                    std::time::Duration::from_millis(3000),
                 );
 
                 let mut conn = match conn_res {
@@ -383,7 +408,7 @@ pub fn fetch_metadata_from_swarm(
 
     drop(tx);
 
-    match rx.recv_timeout(std::time::Duration::from_secs(20)) {
+    match rx.recv_timeout(std::time::Duration::from_secs(35)) {
         Ok(metadata) => {
             found.store(true, Ordering::Relaxed);
             for h in handles {
@@ -402,6 +427,13 @@ pub fn fetch_metadata_from_swarm(
 }
 
 pub fn fetch_torrent(magnet_uri: &str) -> Result<TorrentFile, String> {
+    fetch_torrent_bound(magnet_uri, None)
+}
+
+pub fn fetch_torrent_bound(
+    magnet_uri: &str,
+    bind_ip: Option<std::net::IpAddr>,
+) -> Result<TorrentFile, String> {
     let magnet = parse_magnet_uri(magnet_uri)?;
 
     let mut trackers = Vec::new();
@@ -445,7 +477,7 @@ pub fn fetch_torrent(magnet_uri: &str) -> Result<TorrentFile, String> {
 
         println!("Found {} peers from tracker. Probing swarm concurrently for metadata...", addrs.len());
 
-        match fetch_metadata_from_swarm(&addrs, &magnet.info_hash, &peer_id) {
+        match fetch_metadata_from_swarm(&addrs, &magnet.info_hash, &peer_id, bind_ip) {
             Ok(info_bytes) => {
                 println!("Metadata downloaded and verified successfully.");
                 return crate::core::torrent::from_info_bytes(

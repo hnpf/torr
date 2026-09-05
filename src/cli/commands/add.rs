@@ -4,7 +4,22 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub fn run(source: &str, output_location: Option<&str>, bind_target: Option<&str>) -> Result<(), String> {
-    let torrent = torrent::load_source(source)?;
+    let bind_iface = if let Some(target) = bind_target {
+        let iface = crate::core::vpn::resolve_bind_interface(target)?;
+        let ip_str = iface.ip.map(|i| i.to_string()).unwrap_or_else(|| "no ip".to_string());
+        println!("Bound to interface: {} ({}) with killswitch enabled", iface.name, ip_str);
+        Some(iface)
+    } else {
+        None
+    };
+
+    let torrent = if source.starts_with("magnet:") {
+        let bind_ip = bind_iface.as_ref().and_then(|i| i.ip);
+        crate::core::magnet::fetch_torrent_bound(source, bind_ip)?
+    } else {
+        torrent::load_source(source)?
+    };
+
     let dest = resolve_destination(output_location, &torrent.name);
 
     if let Some(parent) = dest.parent() {
@@ -16,10 +31,7 @@ pub fn run(source: &str, output_location: Option<&str>, bind_target: Option<&str
     println!("Downloading {:?} -> {:?}", torrent.name, dest);
     let mut session = DownloadSession::new(torrent, &dest)?;
 
-    if let Some(target) = bind_target {
-        let iface = crate::core::vpn::resolve_bind_interface(target)?;
-        let ip_str = iface.ip.map(|i| i.to_string()).unwrap_or_else(|| "no ip".to_string());
-        println!("Bound to interface: {} ({}) with killswitch enabled", iface.name, ip_str);
+    if let Some(iface) = bind_iface {
         session.set_bind_interface(Some(iface));
     }
 

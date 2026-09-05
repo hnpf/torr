@@ -572,19 +572,28 @@ mod tests {
         let s1 = std::thread::spawn(move || {
             let (mut socket, _) = listener_peer1.accept().unwrap();
             let mut buf = vec![0u8; 1 + PROTOCOL_LEN as usize + 8 + 20 + 20];
-            socket.read_exact(&mut buf).unwrap();
-            socket.write_all(&Handshake::new(info_hash, *b"-TR0001-111111111111").encode()).unwrap();
+            if socket.read_exact(&mut buf).is_err() {
+                return;
+            }
+            let _ = socket.write_all(&Handshake::new(info_hash, *b"-TR0001-111111111111").encode());
 
             let mut interested = [0u8; 5];
-            socket.read_exact(&mut interested).unwrap();
-            socket.write_all(&Message::Unchoke.encode()).unwrap();
+            if socket.read_exact(&mut interested).is_err() {
+                return;
+            }
+            let _ = socket.write_all(&Message::Unchoke.encode());
 
-            let mut req = [0u8; 4 + 1 + 12];
-            if socket.read_exact(&mut req).is_ok() {
+            loop {
+                let mut req = [0u8; 4 + 1 + 12];
+                if socket.read_exact(&mut req).is_err() {
+                    break;
+                }
                 if let Ok((Message::Request { index, .. }, _)) = Message::decode(&req) {
                     let data = if index == 0 { piece0_data } else { piece1_data };
                     let piece_msg = Message::Piece { index, begin: 0, block: data.to_vec() };
-                    let _ = socket.write_all(&piece_msg.encode());
+                    if socket.write_all(&piece_msg.encode()).is_err() {
+                        break;
+                    }
                 }
             }
         });
@@ -592,19 +601,28 @@ mod tests {
         let s2 = std::thread::spawn(move || {
             let (mut socket, _) = listener_peer2.accept().unwrap();
             let mut buf = vec![0u8; 1 + PROTOCOL_LEN as usize + 8 + 20 + 20];
-            socket.read_exact(&mut buf).unwrap();
-            socket.write_all(&Handshake::new(info_hash, *b"-TR0001-222222222222").encode()).unwrap();
+            if socket.read_exact(&mut buf).is_err() {
+                return;
+            }
+            let _ = socket.write_all(&Handshake::new(info_hash, *b"-TR0001-222222222222").encode());
 
             let mut interested = [0u8; 5];
-            socket.read_exact(&mut interested).unwrap();
-            socket.write_all(&Message::Unchoke.encode()).unwrap();
+            if socket.read_exact(&mut interested).is_err() {
+                return;
+            }
+            let _ = socket.write_all(&Message::Unchoke.encode());
 
-            let mut req = [0u8; 4 + 1 + 12];
-            if socket.read_exact(&mut req).is_ok() {
+            loop {
+                let mut req = [0u8; 4 + 1 + 12];
+                if socket.read_exact(&mut req).is_err() {
+                    break;
+                }
                 if let Ok((Message::Request { index, .. }, _)) = Message::decode(&req) {
                     let data = if index == 0 { piece0_data } else { piece1_data };
                     let piece_msg = Message::Piece { index, begin: 0, block: data.to_vec() };
-                    let _ = socket.write_all(&piece_msg.encode());
+                    if socket.write_all(&piece_msg.encode()).is_err() {
+                        break;
+                    }
                 }
             }
         });
