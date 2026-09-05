@@ -30,6 +30,20 @@ fi
 
 echo "==> Successfully installed torr to $INSTALL_DIR/torr"
 
+DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+mkdir -p "$DESKTOP_DIR"
+install -m 644 torr.desktop "$DESKTOP_DIR/torr.desktop"
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
+fi
+
+if command -v xdg-mime >/dev/null 2>&1; then
+    xdg-mime default torr.desktop x-scheme-handler/magnet >/dev/null 2>&1 || true
+    xdg-mime default torr.desktop application/x-bittorrent >/dev/null 2>&1 || true
+    echo "==> Registered torr as default xdg handler for magnet links and .torrent files"
+fi
+
 case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
     *)

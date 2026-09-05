@@ -70,8 +70,29 @@ fn main() {
             }
             cli::commands::verify::run(&positional[1], &positional[2])
         }
+        "open" => {
+            if positional.len() < 2 {
+                eprintln!("usage: torr open [--interactive] [-l <location>] <torrent_source>");
+                process::exit(1);
+            }
+            let (source, interactive) = if positional[1] == "--interactive" {
+                if positional.len() < 3 {
+                    eprintln!("usage: torr open --interactive <torrent_source>");
+                    process::exit(1);
+                }
+                (&positional[2], true)
+            } else {
+                (&positional[1], false)
+            };
+            cli::commands::open::run(source, interactive, location.as_deref())
+        }
         source => {
-            cli::commands::add::run(source, location.as_deref())
+            use std::io::IsTerminal;
+            if !std::io::stdin().is_terminal() && (source.starts_with("magnet:") || source.ends_with(".torrent")) {
+                cli::commands::open::run(source, false, location.as_deref())
+            } else {
+                cli::commands::add::run(source, location.as_deref())
+            }
         }
     };
 
@@ -90,4 +111,5 @@ fn print_usage() {
     println!("  torr status <source>                   show torrent metadata");
     println!("  torr peers <source>                    list peers from tracker");
     println!("  torr verify <source> <file>            verify downloaded file");
+    println!("  torr open <source>                     open interactively in terminal");
 }

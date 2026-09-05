@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=torr
+Comment=lightweight bittorrent client
+Exec=torr open %U
+Icon=utilities-terminal
+Terminal=false
+Categories=Network;FileTransfer;P2P;
+MimeType=x-scheme-handler/magnet;application/x-bittorrent;
