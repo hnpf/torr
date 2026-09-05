@@ -9,13 +9,13 @@
 ### quick install (script)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/hnpf/tc/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/hnpf/torr/main/install.sh | bash
 ```
 
 Or from source:
 
 ```bash
-git clone https://github.com/hnpf/tc.git
+git clone https://github.com/hnpf/torr.git
 cd tc
 ./install.sh
 ```
