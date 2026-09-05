@@ -149,22 +149,13 @@ impl DownloadSession {
             }
         }
 
-        let mut all_peers = Vec::new();
-        for tr in &all_trackers {
-            if let Ok(peers) = crate::core::tracker::announce_addrs(
-                tr,
-                &self.torrent.info_hash,
-                &self.peer_id,
-                self.port,
-                self.left_bytes(),
-            ) {
-                for p in peers {
-                    if !all_peers.contains(&p) {
-                        all_peers.push(p);
-                    }
-                }
-            }
-        }
+        let all_peers = crate::core::tracker::announce_all(
+            &all_trackers,
+            &self.torrent.info_hash,
+            &self.peer_id,
+            self.port,
+            self.left_bytes(),
+        );
 
         if all_peers.is_empty() {
             return Err("no peers available from any tracker".into());

@@ -340,12 +340,39 @@ impl PeerState {
     }
 
     pub fn download_piece(&mut self, index: u32, piece_length: u32) -> Result<Vec<u8>, String> {
-        let ranges = crate::core::piece::block_ranges(piece_length as usize);
-        let mut blocks: HashMap<u32, Vec<u8>> = HashMap::new();
+        if !self.local_interested {
+            self.set_interested()?;
+        }
 
-        for range in ranges {
-            let block = self.request_block(index, range.begin, range.length)?;
-            blocks.insert(range.begin, block);
+        let ranges = crate::core::piece::block_ranges(piece_length as usize);
+        let total_blocks = ranges.len();
+        let mut blocks: HashMap<u32, Vec<u8>> = HashMap::with_capacity(total_blocks);
+
+        let max_pipeline = 16.min(total_blocks);
+        let mut requested_idx = 0;
+
+        while requested_idx < max_pipeline && requested_idx < total_blocks {
+            let r = &ranges[requested_idx];
+            self.connection.send_request(index, r.begin, r.length)?;
+            requested_idx += 1;
+        }
+
+        while blocks.len() < total_blocks {
+            let msg = self.receive_and_update()?;
+            match msg {
+                Message::Piece { index: i, begin, block } if i == index => {
+                    blocks.insert(begin, block);
+                    if requested_idx < total_blocks {
+                        let r = &ranges[requested_idx];
+                        self.connection.send_request(index, r.begin, r.length)?;
+                        requested_idx += 1;
+                    }
+                }
+                Message::Choke => {
+                    return Err("peer choked during transfer".into());
+                }
+                _ => {}
+            }
         }
 
         crate::core::piece::assemble_piece(piece_length as usize, &blocks)

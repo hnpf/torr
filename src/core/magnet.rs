@@ -457,43 +457,30 @@ pub fn fetch_torrent_bound(
 
     let hex_hash: String = magnet.info_hash.iter().map(|b| format!("{:02x}", b)).collect();
     println!("Resolving magnet link (info_hash: {})...", hex_hash);
+    println!("Announcing to {} trackers concurrently...", trackers.len());
 
-    let mut last_err = String::from("could not find any peers with metadata");
+    let addrs = crate::core::tracker::announce_all(
+        &trackers,
+        &magnet.info_hash,
+        &peer_id,
+        port,
+        0,
+    );
 
-    for tr in &trackers {
-        println!("Announcing to tracker: {}", tr);
-        let addrs = match crate::core::tracker::announce_addrs(tr, &magnet.info_hash, &peer_id, port, 0) {
-            Ok(a) if !a.is_empty() => a,
-            Ok(_) => {
-                println!("  Tracker returned 0 peers. Trying next...");
-                continue;
-            }
-            Err(e) => {
-                println!("  Tracker failed ({}). Trying next...", e);
-                last_err = format!("tracker announce error: {}", e);
-                continue;
-            }
-        };
-
-        println!("Found {} peers from tracker. Probing swarm concurrently for metadata...", addrs.len());
-
-        match fetch_metadata_from_swarm(&addrs, &magnet.info_hash, &peer_id, bind_ip) {
-            Ok(info_bytes) => {
-                println!("Metadata downloaded and verified successfully.");
-                return crate::core::torrent::from_info_bytes(
-                    &info_bytes,
-                    tr,
-                    magnet.display_name.as_deref(),
-                );
-            }
-            Err(e) => {
-                println!("  Metadata fetch from this tracker's peers failed ({}). Trying next tracker...", e);
-                last_err = e;
-            }
-        }
+    if addrs.is_empty() {
+        return Err("could not find any peers from candidate trackers".into());
     }
 
-    Err(last_err)
+    println!("Found {} unique peers in swarm. Probing for metadata...", addrs.len());
+
+    let info_bytes = fetch_metadata_from_swarm(&addrs, &magnet.info_hash, &peer_id, bind_ip)?;
+    println!("Metadata downloaded and verified successfully.");
+    let announce_url = trackers.first().cloned().unwrap_or_else(|| DEFAULT_TRACKERS[0].to_string());
+    crate::core::torrent::from_info_bytes(
+        &info_bytes,
+        &announce_url,
+        magnet.display_name.as_deref(),
+    )
 }
 
 #[cfg(test)]

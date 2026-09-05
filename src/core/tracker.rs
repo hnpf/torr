@@ -81,6 +81,46 @@ pub fn announce_addrs(
         .map(|peers| peers.into_iter().map(|peer| peer.socket_addr()).collect())
 }
 
+pub fn announce_all(
+    trackers: &[String],
+    info_hash: &[u8; 20],
+    peer_id: &[u8; 20],
+    port: u16,
+    left: i64,
+) -> Vec<SocketAddr> {
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    let all_peers = Arc::new(Mutex::new(Vec::new()));
+    let mut handles = Vec::new();
+
+    for tr in trackers {
+        let tr = tr.clone();
+        let hash = *info_hash;
+        let pid = *peer_id;
+        let peers_clone = Arc::clone(&all_peers);
+
+        let handle = thread::spawn(move || {
+            if let Ok(addrs) = announce_addrs(&tr, &hash, &pid, port, left) {
+                let mut guard = peers_clone.lock().unwrap();
+                for addr in addrs {
+                    if !guard.contains(&addr) {
+                        guard.push(addr);
+                    }
+                }
+            }
+        });
+        handles.push(handle);
+    }
+
+    for h in handles {
+        let _ = h.join();
+    }
+
+    let guard = all_peers.lock().unwrap();
+    guard.clone()
+}
+
 fn parse_compact_peers(peers_raw: &[u8]) -> Result<Vec<Peer>, String> {
     if peers_raw.len() % 6 != 0 {
         return Err("malformed compact peers".into());
