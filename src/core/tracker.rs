@@ -30,7 +30,12 @@ pub fn announce(
         left,
     );
 
-    let response = ureq::get(&url)
+    let config = ureq::config::Config::builder()
+        .timeout_global(Some(std::time::Duration::from_secs(4)))
+        .build();
+    let agent = ureq::Agent::new_with_config(config);
+
+    let response = agent.get(&url)
         .header("User-Agent", "torr/0.1.0")
         .call()
         .map_err(|e| format!("tracker request failed: {e}"))?;

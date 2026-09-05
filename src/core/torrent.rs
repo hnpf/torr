@@ -147,7 +147,12 @@ pub fn parse(data: &[u8]) -> Result<TorrentFile, String> {
 pub fn load_bytes(source: &str) -> Result<Vec<u8>, String> {
     if source.starts_with("http://") || source.starts_with("https://") {
         use std::io::Read;
-        let response = ureq::get(source)
+        let config = ureq::config::Config::builder()
+            .timeout_global(Some(std::time::Duration::from_secs(10)))
+            .build();
+        let agent = ureq::Agent::new_with_config(config);
+
+        let response = agent.get(source)
             .header("User-Agent", "torr/0.1.0")
             .call()
             .map_err(|e| format!("failed to fetch torrent from '{source}': {e}"))?;

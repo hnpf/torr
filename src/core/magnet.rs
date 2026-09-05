@@ -351,8 +351,12 @@ pub fn fetch_torrent(magnet_uri: &str) -> Result<TorrentFile, String> {
         println!("Announcing to tracker: {}", tr);
         let addrs = match crate::core::tracker::announce_addrs(tr, &magnet.info_hash, &peer_id, port, 0) {
             Ok(a) if !a.is_empty() => a,
-            Ok(_) => continue,
+            Ok(_) => {
+                println!("  Tracker returned 0 peers. Trying next...");
+                continue;
+            }
             Err(e) => {
+                println!("  Tracker failed ({}). Trying next...", e);
                 last_err = format!("tracker announce error: {}", e);
                 continue;
             }
