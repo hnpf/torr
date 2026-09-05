@@ -3,3 +3,4 @@ pub mod status;
 pub mod peers;
 pub mod verify;
 pub mod open;
+pub mod vpn;

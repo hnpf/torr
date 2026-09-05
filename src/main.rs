@@ -12,6 +12,7 @@ fn main() {
     }
 
     let mut location: Option<String> = None;
+    let mut bind: Option<String> = None;
     let mut positional: Vec<String> = Vec::new();
 
     let mut i = 0;
@@ -24,6 +25,18 @@ fn main() {
                 }
                 location = Some(args[i + 1].clone());
                 i += 2;
+            }
+            "-b" | "--bind" => {
+                if i + 1 >= args.len() {
+                    eprintln!("error: missing argument for {}", args[i]);
+                    process::exit(1);
+                }
+                bind = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--vpn" => {
+                bind = Some("vpn".to_string());
+                i += 1;
             }
             "-h" | "--help" | "help" => {
                 print_usage();
@@ -44,10 +57,10 @@ fn main() {
     let result = match positional[0].as_str() {
         "download" | "add" => {
             if positional.len() < 2 {
-                eprintln!("usage: torr download [-l <location>] <torrent_source>");
+                eprintln!("usage: torr download [-l <location>] [-b <iface>] <torrent_source>");
                 process::exit(1);
             }
-            cli::commands::add::run(&positional[1], location.as_deref())
+            cli::commands::add::run(&positional[1], location.as_deref(), bind.as_deref())
         }
         "status" | "info" => {
             if positional.len() < 2 {
@@ -70,6 +83,9 @@ fn main() {
             }
             cli::commands::verify::run(&positional[1], &positional[2])
         }
+        "vpn" | "interfaces" => {
+            cli::commands::vpn::run()
+        }
         "open" => {
             if positional.len() < 2 {
                 eprintln!("usage: torr open [--interactive] [-l <location>] <torrent_source>");
@@ -91,7 +107,7 @@ fn main() {
             if !std::io::stdin().is_terminal() && (source.starts_with("magnet:") || source.ends_with(".torrent")) {
                 cli::commands::open::run(source, false, location.as_deref())
             } else {
-                cli::commands::add::run(source, location.as_deref())
+                cli::commands::add::run(source, location.as_deref(), bind.as_deref())
             }
         }
     };
@@ -106,10 +122,11 @@ fn print_usage() {
     println!("torr - bittorrent client");
     println!();
     println!("usage:");
-    println!("  torr [-l <location>] <file_or_url>     download torrent directly");
-    println!("  torr download [-l <location>] <source> download torrent");
+    println!("  torr [-l <dir>] [-b <iface>] <source>  download torrent directly");
+    println!("  torr download [--vpn] <source>         download bound to active VPN");
     println!("  torr status <source>                   show torrent metadata");
     println!("  torr peers <source>                    list peers from tracker");
     println!("  torr verify <source> <file>            verify downloaded file");
     println!("  torr open <source>                     open interactively in terminal");
+    println!("  torr vpn                               list network interfaces & active VPNs");
 }

@@ -21,6 +21,7 @@ pub struct DownloadSession {
     pub completed_pieces: Vec<bool>,
     pub peer_id: [u8; 20],
     pub port: u16,
+    pub bind_interface: Option<crate::core::vpn::InterfaceInfo>,
 }
 
 use std::collections::HashSet;
@@ -64,16 +65,16 @@ impl PiecePicker {
         None
     }
 
-    pub fn mark_completed(&mut self, idx: usize) {
-        self.in_flight.remove(&idx);
-        if !self.completed[idx] {
-            self.completed[idx] = true;
+    pub fn mark_completed(&mut self, index: usize) {
+        if index < self.total_pieces && !self.completed[index] {
+            self.completed[index] = true;
+            self.in_flight.remove(&index);
             self.completed_count += 1;
         }
     }
 
-    pub fn cancel_piece(&mut self, idx: usize) {
-        self.in_flight.remove(&idx);
+    pub fn cancel_piece(&mut self, index: usize) {
+        self.in_flight.remove(&index);
     }
 }
 
@@ -107,7 +108,12 @@ impl DownloadSession {
             completed_pieces,
             peer_id: generate_peer_id(),
             port: 6881,
+            bind_interface: None,
         })
+    }
+
+    pub fn set_bind_interface(&mut self, iface: Option<crate::core::vpn::InterfaceInfo>) {
+        self.bind_interface = iface;
     }
 
     pub fn is_complete(&self) -> bool {
@@ -165,6 +171,9 @@ impl DownloadSession {
         let (tx, rx) = mpsc::channel::<usize>();
         let shutdown = Arc::new(AtomicBool::new(false));
 
+        let bind_ip = self.bind_interface.as_ref().and_then(|i| i.ip);
+        let vpn_monitor = self.bind_interface.as_ref().map(crate::core::vpn::VpnMonitor::new);
+
         let max_workers = std::cmp::min(peers.len(), 16).max(1);
         let mut handles = Vec::new();
 
@@ -190,7 +199,13 @@ impl DownloadSession {
                         None => break,
                     };
 
-                    let conn = match PeerConnection::connect(addr, torrent.info_hash, peer_id) {
+                    let conn = match PeerConnection::connect_bound(
+                        addr,
+                        torrent.info_hash,
+                        peer_id,
+                        bind_ip,
+                        std::time::Duration::from_secs(5),
+                    ) {
                         Ok(c) => c,
                         Err(_) => continue,
                     };
@@ -257,6 +272,18 @@ impl DownloadSession {
         let mut session_bytes = 0u64;
 
         loop {
+            if let Some(ref monitor) = vpn_monitor {
+                if !monitor.is_healthy() {
+                    eprintln!("\n[Killswitch is active!] VPN '{}' went down! Pausing torrent transfers to prevent any leak...", monitor.interface_name);
+                    while !monitor.is_healthy() && !shutdown.load(Ordering::Relaxed) {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                    }
+                    if monitor.is_healthy() {
+                        eprintln!("[Killswitch] VPN is restored. Now resuming download...");
+                    }
+                }
+            }
+
             let is_done = picker.lock().unwrap().is_complete();
             if is_done {
                 shutdown.store(true, Ordering::Relaxed);
@@ -553,12 +580,12 @@ mod tests {
             socket.write_all(&Message::Unchoke.encode()).unwrap();
 
             let mut req = [0u8; 4 + 1 + 12];
-            socket.read_exact(&mut req).unwrap();
-            let req_msg = Message::decode(&req).unwrap().0;
-            if let Message::Request { index, .. } = req_msg {
-                let data = if index == 0 { piece0_data } else { piece1_data };
-                let piece_msg = Message::Piece { index, begin: 0, block: data.to_vec() };
-                socket.write_all(&piece_msg.encode()).unwrap();
+            if socket.read_exact(&mut req).is_ok() {
+                if let Ok((Message::Request { index, .. }, _)) = Message::decode(&req) {
+                    let data = if index == 0 { piece0_data } else { piece1_data };
+                    let piece_msg = Message::Piece { index, begin: 0, block: data.to_vec() };
+                    let _ = socket.write_all(&piece_msg.encode());
+                }
             }
         });
 
@@ -573,12 +600,12 @@ mod tests {
             socket.write_all(&Message::Unchoke.encode()).unwrap();
 
             let mut req = [0u8; 4 + 1 + 12];
-            socket.read_exact(&mut req).unwrap();
-            let req_msg = Message::decode(&req).unwrap().0;
-            if let Message::Request { index, .. } = req_msg {
-                let data = if index == 0 { piece0_data } else { piece1_data };
-                let piece_msg = Message::Piece { index, begin: 0, block: data.to_vec() };
-                socket.write_all(&piece_msg.encode()).unwrap();
+            if socket.read_exact(&mut req).is_ok() {
+                if let Ok((Message::Request { index, .. }, _)) = Message::decode(&req) {
+                    let data = if index == 0 { piece0_data } else { piece1_data };
+                    let piece_msg = Message::Piece { index, begin: 0, block: data.to_vec() };
+                    let _ = socket.write_all(&piece_msg.encode());
+                }
             }
         });
 

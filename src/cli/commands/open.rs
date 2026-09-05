@@ -46,12 +46,29 @@ pub fn run(source: &str, interactive_flag: bool, location: Option<&str>) -> Resu
 
     let default_dir = default_download_dir();
     let mut chosen_location: Option<String> = location.map(|s| s.to_string());
+    let mut chosen_bind: Option<String> = None;
+
+    let active_vpns = crate::core::vpn::find_active_vpns();
+    if !active_vpns.is_empty() {
+        let vpn_descs: Vec<String> = active_vpns
+            .iter()
+            .map(|v| {
+                let ip_str = v.ip.map(|i| format!(" - {}", i)).unwrap_or_default();
+                format!("{} [{}]{}", v.name, v.vpn_type.as_deref().unwrap_or("VPN"), ip_str)
+            })
+            .collect();
+        println!("Detected VPN: {}", vpn_descs.join(", "));
+    }
+    println!();
 
     if chosen_location.is_none() {
         println!("Default download directory: {}", default_dir.display());
         println!();
         println!("Options:");
         println!("  [Enter] Download to {}", default_dir.display());
+        if !active_vpns.is_empty() {
+            println!("  [v]     Download via VPN ({}) with killswitch", active_vpns[0].name);
+        }
         println!("  [1]     Download to current directory (.)");
         println!("  [2]     Specify custom download path");
         println!("  [3]     Inspect status / info only");
@@ -66,6 +83,10 @@ pub fn run(source: &str, interactive_flag: bool, location: Option<&str>) -> Resu
             match trimmed {
                 "" => {
                     chosen_location = Some(default_dir.to_string_lossy().to_string());
+                }
+                "v" | "V" if !active_vpns.is_empty() => {
+                    chosen_location = Some(default_dir.to_string_lossy().to_string());
+                    chosen_bind = Some(active_vpns[0].name.clone());
                 }
                 "1" => {
                     chosen_location = Some(".".to_string());
@@ -103,7 +124,11 @@ pub fn run(source: &str, interactive_flag: bool, location: Option<&str>) -> Resu
         }
     }
 
-    let download_res = crate::cli::commands::add::run(source, chosen_location.as_deref());
+    let download_res = crate::cli::commands::add::run(
+        source,
+        chosen_location.as_deref(),
+        chosen_bind.as_deref(),
+    );
 
     if interactive_flag {
         pause_before_exit();

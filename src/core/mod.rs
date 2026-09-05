@@ -6,3 +6,4 @@ pub mod storage;
 pub mod peer;
 pub mod download;
 pub mod magnet;
+pub mod vpn;

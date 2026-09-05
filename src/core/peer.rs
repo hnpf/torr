@@ -154,9 +154,17 @@ impl PeerConnection {
         peer_id: [u8; 20],
         timeout: std::time::Duration,
     ) -> Result<Self, String> {
-        let mut stream = TcpStream::connect_timeout(&addr, timeout).map_err(|e| e.to_string())?;
-        let _ = stream.set_read_timeout(Some(timeout));
-        let _ = stream.set_write_timeout(Some(timeout));
+        Self::connect_bound(addr, info_hash, peer_id, None, timeout)
+    }
+
+    pub fn connect_bound(
+        addr: SocketAddr,
+        info_hash: [u8; 20],
+        peer_id: [u8; 20],
+        bind_ip: Option<std::net::IpAddr>,
+        timeout: std::time::Duration,
+    ) -> Result<Self, String> {
+        let mut stream = crate::core::vpn::connect_bound(addr, bind_ip, timeout)?;
         let outgoing = Handshake::new(info_hash, peer_id);
         outgoing.write_to(&mut stream)?;
 

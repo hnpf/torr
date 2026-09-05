@@ -64,15 +64,39 @@ torr verify ubuntu.torrent ubuntu-26.04-desktop-amd64.iso
 
 ---
 
+### inspect network interfaces and detected VPNs
+
+```bash
+torr vpn
+```
+
+### download with VPN binding & killswitch protection
+
+```bash
+# auto-detect and bind to any active VPN tunnel
+torr --vpn https://torrentsite.com/file.torrent
+torr -l ~/Downloads --vpn 'magnet:?xt=urn:btih:...'
+
+# bind explicitly to a specific interface
+torr --bind proton0 ubuntu.torrent
+torr -b wg0 'magnet:?xt=urn:btih:...'
+```
+
+---
+
 ## commands & options
 
 | command / flag | description |
 |---|---|
-| `torr <source>` | Download directly from a `.torrent` file or HTTP(S) URL |
+| `torr <source>` | Download directly from a `.torrent` file, HTTP(S) URL, or magnet link |
 | `torr -l <dir>` | Specify target download directory or output path |
+| `torr --vpn` | Auto-detect active VPN (WireGuard, OpenVPN, Proton, Mullvad, etc.) and bind |
+| `torr -b, --bind <iface>` | Bind peer connections to a specific network interface with killswitch |
+| `torr vpn` | List all network interfaces, IPs, and detected VPN connections |
 | `torr status <source>` | Show torrent name, size, piece count, tracker URL, and info hash |
 | `torr peers <source>` | Announce to tracker and list reachable peer IPs/ports |
 | `torr verify <source> <file>` | Validate downloaded piece hashes against the torrent specification |
+| `torr open <source>` | Desktop/xdg-open launcher (auto-launches in terminal with menu) |
 | `torr -h, --help` | Show usage instructions |
 
 ---
@@ -89,9 +113,11 @@ src/
 │   ├── piece.rs       Block slicing (16 KiB blocks), assembly, SHA1 verification
 │   ├── storage.rs     Disk I/O, piece writing, and file verification
 │   ├── download.rs    Download orchestrator, peer manager, resume support
-│   └── magnet.rs      BEP 9 / BEP 10 magnet link resolution & metadata exchange
+│   ├── magnet.rs      BEP 9 / BEP 10 magnet link resolution & metadata exchange
+│   └── vpn.rs         VPN auto-detection, low-level socket binding & killswitch
 ├── cli/
-│   ├── commands/      Command handlers (add, status, peers, verify)
+│   ├── commands/      Command handlers (add, status, peers, verify, open, vpn)
+│   ├── progress.rs    ANSI terminal download progress bars & speed calculation
 │   └── mod.rs
 └── main.rs            CLI flags and entrypoint dispatch
 ```
@@ -110,7 +136,7 @@ src/
 - [x] Fetch `.torrent` directly from HTTP/HTTPS links
 - [x] Multi-file torrent support & cross-file boundary spans
 - [x] Magnet link support (`magnet:?xt=urn:btih:...`)
-- [ ] VPN interface binding with automatic killswitch
+- [x] VPN interface binding with automatic killswitch
 - [ ] BEP 5 Mainline DHT for trackerless torrents
 - [ ] Background daemon mode with socket IPC
 
@@ -119,3 +145,4 @@ src/
 ## License
 
 This project is licensed under the [GNU General Public License v3.0](LICENSE) or later.
+

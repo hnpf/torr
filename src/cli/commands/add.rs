@@ -3,7 +3,7 @@ use crate::core::torrent;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-pub fn run(source: &str, output_location: Option<&str>) -> Result<(), String> {
+pub fn run(source: &str, output_location: Option<&str>, bind_target: Option<&str>) -> Result<(), String> {
     let torrent = torrent::load_source(source)?;
     let dest = resolve_destination(output_location, &torrent.name);
 
@@ -15,6 +15,13 @@ pub fn run(source: &str, output_location: Option<&str>) -> Result<(), String> {
 
     println!("Downloading {:?} -> {:?}", torrent.name, dest);
     let mut session = DownloadSession::new(torrent, &dest)?;
+
+    if let Some(target) = bind_target {
+        let iface = crate::core::vpn::resolve_bind_interface(target)?;
+        let ip_str = iface.ip.map(|i| i.to_string()).unwrap_or_else(|| "no ip".to_string());
+        println!("Bound to interface: {} ({}) with killswitch enabled", iface.name, ip_str);
+        session.set_bind_interface(Some(iface));
+    }
 
     let total = session.torrent.pieces.len();
     println!("Starting download ({} pieces, total {} bytes)...", total, session.torrent.length);
