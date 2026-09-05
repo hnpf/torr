@@ -2,6 +2,12 @@ use crate::core::bencode::BencodeValue;
 use sha1::{Sha1, Digest};
 use std::collections::BTreeMap;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TorrentFileInfo {
+    pub path: Vec<String>,
+    pub length: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct TorrentFile {
     pub announce: String,
@@ -9,10 +15,15 @@ pub struct TorrentFile {
     pub piece_length: i64,
     pub pieces: Vec<[u8; 20]>,     // sha1 hash per piece chopped from one big blob :sob:
     pub name: String,
-    pub length: i64,               // total size, singlefile mode only for now
+    pub length: i64,               // total size across all files
+    pub files: Vec<TorrentFileInfo>,
 }
 
 impl TorrentFile {
+    pub fn is_multi_file(&self) -> bool {
+        !self.files.is_empty()
+    }
+
     pub fn piece_size(&self, index: usize) -> usize {
         if index >= self.pieces.len() {
             return 0;
@@ -45,7 +56,7 @@ pub fn parse(data: &[u8]) -> Result<TorrentFile, String> {
         _ => return Err("missing info dict".into()),
     };
 
-    // re-encode onylu the info dict, hash
+    // re-encode only the info dict to compute info_hash
     let info_value = BencodeValue::Dict(info.clone());
     let info_bytes = info_value.encode();
     let mut hasher = Sha1::new();
@@ -54,7 +65,47 @@ pub fn parse(data: &[u8]) -> Result<TorrentFile, String> {
 
     let piece_length = get_int(info, "piece length")?;
     let name = get_string(info, "name")?;
-    let length = get_int(info, "length")?;
+    
+    let (length, files) = match info.get("files".as_bytes()) {
+        Some(BencodeValue::List(file_list)) => {
+            let mut files = Vec::new();
+            let mut total_len = 0i64;
+            for item in file_list {
+                let dict = match item {
+                    BencodeValue::Dict(d) => d,
+                    _ => return Err("file entry in files list must be a dict".into()),
+                };
+                let file_len = get_int(dict, "length")?;
+                total_len += file_len;
+
+                let path_val = match dict.get("path".as_bytes()) {
+                    Some(BencodeValue::List(p)) => p,
+                    _ => return Err("file entry missing path list".into()),
+                };
+
+                let mut path_segments = Vec::new();
+                for seg in path_val {
+                    match seg {
+                        BencodeValue::Bytes(b) => {
+                            let s = String::from_utf8(b.clone()).map_err(|_| "bad utf8 in file path".to_string())?;
+                            path_segments.push(s);
+                        }
+                        _ => return Err("path segment must be bytes".into()),
+                    }
+                }
+
+                files.push(TorrentFileInfo {
+                    path: path_segments,
+                    length: file_len,
+                });
+            }
+            (total_len, files)
+        }
+        _ => {
+            let file_len = get_int(info, "length")?;
+            (file_len, Vec::new())
+        }
+    };
     
     let pieces_raw = match info.get("pieces".as_bytes()) {
         Some(BencodeValue::Bytes(b)) => b,
@@ -68,7 +119,7 @@ pub fn parse(data: &[u8]) -> Result<TorrentFile, String> {
         .map(|chunk| chunk.try_into().unwrap())
         .collect();
 
-    Ok(TorrentFile { announce, info_hash, piece_length, pieces, name, length })
+    Ok(TorrentFile { announce, info_hash, piece_length, pieces, name, length, files })
 }
 
 pub fn load_bytes(source: &str) -> Result<Vec<u8>, String> {
@@ -164,5 +215,51 @@ mod tests {
         assert_eq!(torrent.name, "ubuntu-26.04-desktop-amd64.iso");
 
         server.join().unwrap();
+    }
+
+    #[test]
+    fn parses_multi_file_torrent_correctly() {
+        let mut info_dict = BTreeMap::new();
+        info_dict.insert(b"name".to_vec(), BencodeValue::Bytes(b"my_dataset".to_vec()));
+        info_dict.insert(b"piece length".to_vec(), BencodeValue::Int(32));
+        info_dict.insert(b"pieces".to_vec(), BencodeValue::Bytes(vec![0u8; 20]));
+
+        let mut file1 = BTreeMap::new();
+        file1.insert(b"length".to_vec(), BencodeValue::Int(20));
+        file1.insert(
+            b"path".to_vec(),
+            BencodeValue::List(vec![
+                BencodeValue::Bytes(b"docs".to_vec()),
+                BencodeValue::Bytes(b"readme.txt".to_vec()),
+            ]),
+        );
+
+        let mut file2 = BTreeMap::new();
+        file2.insert(b"length".to_vec(), BencodeValue::Int(12));
+        file2.insert(
+            b"path".to_vec(),
+            BencodeValue::List(vec![BencodeValue::Bytes(b"data.bin".to_vec())]),
+        );
+
+        info_dict.insert(
+            b"files".to_vec(),
+            BencodeValue::List(vec![BencodeValue::Dict(file1), BencodeValue::Dict(file2)]),
+        );
+
+        let mut root = BTreeMap::new();
+        root.insert(b"announce".to_vec(), BencodeValue::Bytes(b"http://tracker.example.com".to_vec()));
+        root.insert(b"info".to_vec(), BencodeValue::Dict(info_dict));
+
+        let encoded = BencodeValue::Dict(root).encode();
+        let parsed = parse(&encoded).unwrap();
+
+        assert!(parsed.is_multi_file());
+        assert_eq!(parsed.name, "my_dataset");
+        assert_eq!(parsed.length, 32);
+        assert_eq!(parsed.files.len(), 2);
+        assert_eq!(parsed.files[0].path, vec!["docs", "readme.txt"]);
+        assert_eq!(parsed.files[0].length, 20);
+        assert_eq!(parsed.files[1].path, vec!["data.bin"]);
+        assert_eq!(parsed.files[1].length, 12);
     }
 }

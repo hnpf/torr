@@ -5,8 +5,8 @@ use std::path::Path;
 pub fn run(source: &str, target_file: impl AsRef<Path>) -> Result<(), String> {
     let torrent = torrent::load_source(source)?;
 
-    println!("Verifying file {:?} against torrent...", target_file.as_ref());
-    let mut storage = Storage::open(target_file, torrent.piece_length as u32)?;
+    println!("Verifying {:?} against torrent...", target_file.as_ref());
+    let mut storage = Storage::from_torrent(&torrent, target_file)?;
     let mut valid = 0;
     for (idx, expected_hash) in torrent.pieces.iter().enumerate() {
         if storage.verify_piece(idx as u32, expected_hash).is_ok() {

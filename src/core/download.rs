@@ -92,19 +92,14 @@ pub struct ProgressInfo {
 impl DownloadSession {
     pub fn new(torrent: TorrentFile, output_path: impl AsRef<Path>) -> Result<Self, String> {
         let path = output_path.as_ref();
+        let mut storage = Storage::from_torrent(&torrent, path)?;
         let mut completed_pieces = vec![false; torrent.pieces.len()];
 
-        let storage = if path.exists() {
-            let mut existing = Storage::open(path, torrent.piece_length as u32)?;
-            for (idx, hash) in torrent.pieces.iter().enumerate() {
-                if existing.verify_piece(idx as u32, hash).is_ok() {
-                    completed_pieces[idx] = true;
-                }
+        for (idx, hash) in torrent.pieces.iter().enumerate() {
+            if storage.verify_piece(idx as u32, hash).is_ok() {
+                completed_pieces[idx] = true;
             }
-            existing
-        } else {
-            Storage::create(path, torrent.piece_length as u32, torrent.length as u64)?
-        };
+        }
 
         Ok(Self {
             torrent,
@@ -162,7 +157,7 @@ impl DownloadSession {
     {
         let picker = Arc::new(Mutex::new(PiecePicker::new(self.completed_pieces.clone())));
         let path = self.storage.path.clone();
-        let dummy_storage = Storage::open(&path, self.torrent.piece_length as u32)?;
+        let dummy_storage = Storage::from_torrent(&self.torrent, &path)?;
         let prev_storage = std::mem::replace(&mut self.storage, dummy_storage);
         let storage = Arc::new(Mutex::new(prev_storage));
         let peer_queue = Arc::new(Mutex::new(peers.to_vec()));
@@ -373,6 +368,7 @@ mod tests {
             pieces: vec![piece_hash],
             name: "test.bin".into(),
             length: 16,
+            files: vec![],
         };
 
         let mut session = DownloadSession::new(torrent.clone(), &file_path).unwrap();
@@ -416,6 +412,7 @@ mod tests {
             pieces: vec![piece_hash],
             name: "test.bin".into(),
             length: 16,
+            files: vec![],
         };
 
         let tracker_server = std::thread::spawn(move || {
@@ -536,6 +533,7 @@ mod tests {
             pieces: vec![hash0.finalize().into(), hash1.finalize().into()],
             name: "test_multi.bin".into(),
             length: 32,
+            files: vec![],
         };
 
         let listener_peer1 = TcpListener::bind(("127.0.0.1", 0)).unwrap();
